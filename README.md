@@ -170,8 +170,6 @@ docker run --rm -v "${PWD}:/src" -v gomodcache:/go/pkg/mod -w /src golang:1.27.3
 docker compose up -d --build
 ```
 
-CI дополнительно запускает Docker smoke-тест без реальных ключей: `/healthz` 200, `/readyz` 503, `/v1/models` без токена 401. Это не live-проверка Zen.
-
-Каждый push в `main` запускает `Publish GHCR` и публикует образ с тегами `latest` и полным SHA коммита. Теги `v*` публикуются тем же workflow.
+CI выполняет `go vet`, тесты и сборку. На push в `main` после успешного теста образ сразу публикуется в GHCR с тегами `latest` и полным SHA коммита; теги `v*` публикуются так же. Pull request проходит только проверку, без публикации.
 
 Контейнер: scratch, UID/GID 10001, read-only root, без capabilities. Ресурсные лимиты Docker не задаются. Лицензия — MIT (`LICENSE`, `NOTICE`).

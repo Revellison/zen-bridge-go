@@ -2,10 +2,11 @@
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  go:
+  test:
     runs-on: ubuntu-latest
     container: golang:1.27.3-bookworm
     steps:
@@ -13,18 +14,41 @@ jobs:
       - run: go vet ./...
       - run: go test -race -count=1 ./...
       - run: CGO_ENABLED=0 go build -buildvcs=false -trimpath -o /tmp/zen-bridge ./cmd/zen-bridge
-  docker-smoke:
+  publish:
+    needs: test
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Start without upstream credentials
+      - name: Image name
+        id: image
+        shell: bash
         run: |
-          cp config.example.json config.json
-          docker compose -f docker-compose.yaml up --build --wait --wait-timeout 120
-          docker compose -f docker-compose.yaml exec -T bridge /zen-bridge check --config /config/config.json
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18788/healthz)" = 200
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18788/readyz)" = 503
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18788/v1/models)" = 401
-      - name: Stop
-        if: always()
-        run: docker compose -f docker-compose.yaml down --volumes
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=main-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.name }}:latest
+          build-args: |
+            VERSION=${{ steps.image.outputs.version }}
+            COMMIT=${{ github.sha }}
+          provenance: true
+          sbom: true
