@@ -1,0 +1,8 @@
+﻿/config.json
+/config.local.json
+/accounts.json
+/data/
+/zen-bridge
+*.log
+coverage.out
+.env

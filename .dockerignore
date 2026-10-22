@@ -1,0 +1,6 @@
+﻿**
+!go.mod
+!cmd/
+!cmd/**
+!internal/
+!internal/**

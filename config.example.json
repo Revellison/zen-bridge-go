@@ -1,0 +1,43 @@
+{
+  "listen": "0.0.0.0:18788",
+  "log_level": "info",
+  "client_token": "PASTE_YOUR_OWN_ACCESS_KEY",
+  "reload_seconds": 5,
+  "allow_http_upstream": false,
+  "allowed_hosts": [
+    "opencode.ai"
+  ],
+  "catalog_file": "data/catalog.json",
+  "base_models": [
+    "big-pickle",
+    "beam-free",
+    "mimo-v2.6-flash-free",
+    "nemotron-3.5-super-vl-free",
+    "nemotron-3.5-lightning-free",
+    "longcat-2.5-preview-free",
+    "deepseek-v4.1-flash-free",
+    "minimax-m3.1-flash-free",
+    "glm-5.3-flash-free"
+  ],
+  "defaults": {
+    "discovery": {
+      "enabled": true,
+      "check_enabled": false,
+      "refresh_interval_seconds": 21600,
+      "check_interval_seconds": 3600,
+      "max_checks_per_run": 3,
+      "probe_timeout_seconds": 30,
+      "delay_milliseconds": 1000,
+      "recheck_after_seconds": 86400,
+      "failure_backoff_seconds": 900
+    },
+    "profile": "zen-free-compat",
+    "auth_mode": "key",
+    "base_url": "https://opencode.ai/zen/v1",
+    "client_version": "1.18.31",
+    "client_name": "cli",
+    "client_channel": "stable",
+    "inject_compat_tools": false
+  },
+  "api_keys": []
+}

@@ -1,0 +1,12 @@
+Zen Bridge is an independent HTTP compatibility gateway, not an official
+OpenCode product. OpenCode and provider names belong to their owners.
+
+No OpenCode executable, worker runtime, or upstream application source is
+bundled. The Go application uses only the Go standard library. Container
+builds additionally use the official Go builder and a CA certificate bundle;
+those components retain their respective licenses and notices.
+
+Compatibility profiles describe HTTP conventions, not an affiliation,
+permission to bypass provider controls, or a guarantee of service access.
+Use only credentials and services you are authorized to access, in accordance
+with their applicable terms. The software does not execute model tool calls.

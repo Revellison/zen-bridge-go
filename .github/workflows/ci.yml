@@ -1,0 +1,30 @@
+﻿name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    container: golang:1.27.3-bookworm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: CGO_ENABLED=0 go build -trimpath -o /tmp/zen-bridge ./cmd/zen-bridge
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Start without upstream credentials
+        run: |
+          cp config.example.json config.json
+          docker compose -f docker-compose.yaml up --build --wait --wait-timeout 120
+          docker compose -f docker-compose.yaml exec -T bridge /zen-bridge check --config /config/config.json
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18788/healthz)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18788/readyz)" = 503
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18788/v1/models)" = 401
+      - name: Stop
+        if: always()
+        run: docker compose -f docker-compose.yaml down --volumes
