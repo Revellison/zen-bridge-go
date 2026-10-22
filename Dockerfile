@@ -1,6 +1,6 @@
 ﻿FROM golang:1.27.3-bookworm AS build
 WORKDIR /src
-ARG VERSION=0.1.7
+ARG VERSION=0.1.8
 ARG COMMIT=unknown
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 COPY go.mod ./

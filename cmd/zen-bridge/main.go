@@ -140,6 +140,10 @@ func run() error {
 			fmt.Println("configuration valid (no upstream requests made)")
 			return nil
 		}
+		listen, e := config.ListenAddress()
+		if e != nil {
+			return e
+		}
 		token, e := config.ClientToken(cfg)
 		if e != nil {
 			return e
@@ -175,10 +179,10 @@ func run() error {
 				}
 			}
 		}()
-		srv := &http.Server{Addr: cfg.Listen, Handler: app.Handler()}
+		srv := &http.Server{Addr: listen, Handler: app.Handler()}
 		done := make(chan error, 1)
 		go func() { done <- srv.ListenAndServe() }()
-		logger.Info("bridge started; local access key comes from config.json client_token", "listen", cfg.Listen, "version", version)
+		logger.Info("bridge started; local access key comes from config.json client_token", "listen", listen, "version", version)
 		select {
 		case e := <-done:
 			if e != nil && e != http.ErrServerClosed {

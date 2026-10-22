@@ -7,7 +7,6 @@ type Config struct {
 
 	BaseModels        []string `json:"base_models"`
 	CatalogFile       string   `json:"catalog_file"`
-	Listen            string   `json:"listen"`
 	LogLevel          string   `json:"log_level"`
 	AccountsFile      string   `json:"accounts_file"`
 	ReloadSeconds     int      `json:"reload_seconds"`

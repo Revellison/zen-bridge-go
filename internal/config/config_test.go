@@ -21,7 +21,7 @@ func TestConfigDefaultsAndStrictValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.AccountsFile != "accounts.json" || c.CatalogFile != "data/catalog.json" || c.Listen != "0.0.0.0:18788" || c.LogLevel != "info" || c.ReloadSeconds != 5 || len(c.BaseModels) != 9 || len(c.AllowedHosts) != 1 || c.AllowedHosts[0] != "opencode.ai" {
+	if c.AccountsFile != "accounts.json" || c.CatalogFile != "data/catalog.json" || c.LogLevel != "info" || c.ReloadSeconds != 5 || len(c.BaseModels) != 9 || len(c.AllowedHosts) != 1 || c.AllowedHosts[0] != "opencode.ai" {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 	for _, bad := range []string{
@@ -36,6 +36,21 @@ func TestConfigDefaultsAndStrictValidation(t *testing.T) {
 		if _, err := LoadConfig(writeConfig(t, bad)); err == nil {
 			t.Fatalf("accepted %s", bad)
 		}
+	}
+}
+
+func TestListenAddress(t *testing.T) {
+	t.Setenv("ZEN_BRIDGE_LISTEN", "")
+	if addr, err := ListenAddress(); err != nil || addr != "127.0.0.1:18788" {
+		t.Fatalf("default listen %q %v", addr, err)
+	}
+	t.Setenv("ZEN_BRIDGE_LISTEN", "0.0.0.0:19000")
+	if addr, err := ListenAddress(); err != nil || addr != "0.0.0.0:19000" {
+		t.Fatalf("configured listen %q %v", addr, err)
+	}
+	t.Setenv("ZEN_BRIDGE_LISTEN", "not-an-address")
+	if _, err := ListenAddress(); err == nil {
+		t.Fatal("invalid listen accepted")
 	}
 }
 

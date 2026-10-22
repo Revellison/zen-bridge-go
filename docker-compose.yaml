@@ -13,8 +13,9 @@
       - no-new-privileges:true
     environment:
       GOGC: "100"
+      ZEN_BRIDGE_LISTEN: "0.0.0.0:18788"
     ports:
-      - "127.0.0.1:18788:18788"
+      - "127.0.0.1:${BRIDGE_PORT:-18788}:18788"
     volumes:
       - ./:/config:ro
       - bridge-data:/data

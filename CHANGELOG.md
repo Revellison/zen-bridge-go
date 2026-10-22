@@ -1,3 +1,9 @@
+# v0.1.8 — адрес только из env, локальный listen по умолчанию
+
+* `listen` удалён из `config.json`: адрес задаётся переменной `ZEN_BRIDGE_LISTEN`, по умолчанию `127.0.0.1:18788`. Старые конфиги с `listen` отклоняются strict-парсером.
+* В Docker Compose контейнер слушает `0.0.0.0:18788` через `ZEN_BRIDGE_LISTEN`, а host-порт задаётся `BRIDGE_PORT` (по умолчанию `18788`).
+* CI-сборка использует `-buildvcs=false`, чтобы `go build` не падал на VCS status в GitHub Actions.
+
 # v0.1.7 — без thinking_levels и лишнего списка моделей
 
 * `thinking_levels`, `thinking_levels_url`, `thinking_levels_provider` и `thinking_levels_refresh_seconds` удалены полностью вместе с кодом загрузки models.dev, вариантами `model#level` и инъекцией `reasoning_effort`. Клиент передаёт параметры reasoning сам, шлюз их не трогает.

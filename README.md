@@ -19,11 +19,29 @@
 
 ```sh
 cp config.example.json config.json
+cp .env.example .env
 # задайте client_token и добавьте реальные ключи в api_keys
 docker compose up -d --build
 curl -i http://127.0.0.1:18788/healthz
 curl -i http://127.0.0.1:18788/readyz
 ```
+
+### Порты
+
+Адрес процесса задаётся только переменной окружения `ZEN_BRIDGE_LISTEN`, поля `listen` в `config.json` больше нет. По умолчанию используется `127.0.0.1:18788`, поэтому локальный запуск доступен только с этой машины:
+
+```sh
+ZEN_BRIDGE_LISTEN=127.0.0.1:19000 ./zen-bridge serve --config config.json
+```
+
+В Docker Compose контейнер обязан слушать все интерфейсы, поэтому compose задаёт `ZEN_BRIDGE_LISTEN=0.0.0.0:18788`. Наружу порт публикуется через `BRIDGE_PORT` из `.env`:
+
+```sh
+# .env
+BRIDGE_PORT=19000
+```
+
+По умолчанию публикуется `127.0.0.1:18788`. Значение `BRIDGE_PORT=0` попросит Docker выбрать свободный порт; узнать его можно командой `docker compose port bridge 18788`. Внутренний порт контейнера фиксирован в compose и healthcheck; для его смены нужно править compose, а не `config.json`. Старые конфиги с полем `listen` отклоняются strict-парсером — удалите это поле.
 
 `/readyz` возвращает 503, пока нет включённого аккаунта. Локальный ключ доступа и ключ Zen — разные секреты:
 
@@ -40,11 +58,10 @@ curl -i http://127.0.0.1:18788/readyz
 
 | Поле | По умолчанию | Назначение |
 |---|---|---|
-| `listen` | `0.0.0.0:18788` | Адрес HTTP-сервера. Compose публикует его только на `127.0.0.1`. |
 | `log_level` | `info` | `debug`, `info`, `warn` или `error`. Применяется после рестарта. |
 | `client_token` | — | Локальный Bearer-токен клиентов. Обязателен, меняется после рестарта. |
 | `api_keys` | `[]` | Upstream-ключи Zen. Пустой массив допустим: сервер запускается без inference-аккаунтов. |
-| `accounts` | — | Явные аккаунты вместо `api_keys`: свои ID, `public`, per-account настройки. Нельзя смешивать с inline `api_keys`. |
+| `accounts` | — | Явные аккаунты: свои ID, `public`, per-account настройки. Можно использовать вместе с `api_keys`. |
 | `base_models` | список free-моделей | Что показывать в `/v1/models`. Это только объявления для IDE, а не whitelist: запросы к другим моделям проходят. |
 | `reload_seconds` | `5` | Период проверки изменений аккаунтов и каталога. |
 | `catalog_file` | `data/catalog.json` | Путь к кэшу проверенных моделей. В контейнере `data/...` разрешается в `/data/...`. |
@@ -113,7 +130,7 @@ docker compose exec -T bridge /zen-bridge models check --config /config/config.j
 
 ### Что перечитывается без рестарта
 
-`defaults`, `api_keys` и `accounts` перечитываются автоматически каждые `reload_seconds`. `listen`, `log_level`, `base_models`, `catalog_file`, `allowed_hosts`, `allow_http_upstream` и `client_token` применяются только после рестарта. Битый файл целиком отклоняется, последняя рабочая конфигурация сохраняется.
+`defaults`, `api_keys` и `accounts` перечитываются автоматически каждые `reload_seconds`. `log_level`, `base_models`, `catalog_file`, `allowed_hosts`, `allow_http_upstream`, `client_token` и `ZEN_BRIDGE_LISTEN` применяются только после рестарта. Битый файл целиком отклоняется, последняя рабочая конфигурация сохраняется.
 
 ## Профили
 
