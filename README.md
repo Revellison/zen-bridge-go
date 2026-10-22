@@ -15,16 +15,35 @@
 
 Запрос и ответ идут без изменений: `stream` передаётся как есть, SSE-байты и ошибки upstream возвращаются клиенту один в один. Модели вне списка аккаунта тоже маршрутизируются в любой доступный аккаунт, поэтому новые модели можно использовать сразу. Параметры reasoning (`reasoning_effort`, `reasoning`) шлюз не добавляет и не переписывает.
 
-## Быстрый старт
+## Установка
+
+### Готовый образ
 
 ```sh
 cp config.example.json config.json
 cp .env.example .env
 # задайте client_token и добавьте реальные ключи в api_keys
-docker compose up -d --build
+docker pull ghcr.io/revellison/zen-bridge-go:latest
+docker compose up -d
 curl -i http://127.0.0.1:18788/healthz
 curl -i http://127.0.0.1:18788/readyz
 ```
+
+Compose использует готовый образ из GHCR и ничего не собирает локально. Для обновления повторите `docker pull ghcr.io/revellison/zen-bridge-go:latest` и `docker compose up -d`.
+
+### Из исходников
+
+```sh
+git clone https://github.com/Revellison/zen-bridge-go.git
+cd zen-bridge-go
+cp config.example.json config.json
+cp .env.example .env
+# задайте client_token и добавьте реальные ключи в api_keys
+docker build -t ghcr.io/revellison/zen-bridge-go:latest .
+docker compose up -d
+```
+
+Локальная сборка использует тот же тег, что и готовый образ, поэтому после неё `docker pull` снова переключит Compose на опубликованную версию.
 
 ### Порты
 
@@ -167,7 +186,8 @@ docker compose exec -T bridge /zen-bridge models check --config /config/config.j
 ```sh
 docker run --rm -v "${PWD}:/src" -v gomodcache:/go/pkg/mod -w /src golang:1.27.3-bookworm \
   bash -c "gofmt -l cmd internal; go vet ./... && CGO_ENABLED=1 go test -race -count=1 ./..."
-docker compose up -d --build
+docker build -t ghcr.io/revellison/zen-bridge-go:latest .
+docker compose up -d
 ```
 
 CI выполняет `go vet`, тесты и сборку. На push в `main` после успешного теста образ сразу публикуется в GHCR с тегами `latest` и полным SHA коммита; теги `v*` публикуются так же. Pull request проходит только проверку, без публикации.

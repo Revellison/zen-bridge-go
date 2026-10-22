@@ -4,6 +4,7 @@
 * В Docker Compose контейнер слушает `0.0.0.0:18788` через `ZEN_BRIDGE_LISTEN`, а host-порт задаётся `BRIDGE_PORT` (по умолчанию `18788`).
 * CI-сборка использует `-buildvcs=false`, чтобы `go build` не падал на VCS status в GitHub Actions.
 * GHCR-образ теперь публикуется автоматически на каждый push в `main` (теги `latest` и SHA коммита), а также по тегам `v*`. Проверка и публикация объединены в один workflow: образ собирается только после успешного теста.
+* Docker Compose использует готовый образ `ghcr.io/revellison/zen-bridge-go:latest`; README описывает установку из GHCR и альтернативную сборку из клона репозитория.
 
 # v0.1.7 — без thinking_levels и лишнего списка моделей
 

@@ -1,9 +1,6 @@
 ﻿services:
   bridge:
-    image: zen-bridge:local
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/revellison/zen-bridge-go:latest
     restart: unless-stopped
     init: true
     user: "10001:10001"
