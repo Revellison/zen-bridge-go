@@ -8,25 +8,25 @@ type Config struct {
 	BaseModels        []string `json:"base_models"`
 	CatalogFile       string   `json:"catalog_file"`
 	LogLevel          string   `json:"log_level"`
-	AccountsFile      string   `json:"accounts_file"`
 	ReloadSeconds     int      `json:"reload_seconds"`
+	AccountsFile      string   `json:"accounts_file"`
 	AllowHTTPUpstream bool     `json:"allow_http_upstream"`
 	AllowedHosts      []string `json:"allowed_hosts"`
 }
 
 type Account struct {
-	Discovery         *DiscoveryConfig `json:"discovery,omitempty"`
-	ID                string           `json:"id"`
-	APIKey            string           `json:"api_key"`
-	Enabled           bool             `json:"enabled"`
-	Models            []string         `json:"models"`
-	BaseURL           string           `json:"base_url"`
-	Profile           string           `json:"profile"`
-	AuthMode          string           `json:"auth_mode"`
-	ClientVersion     string           `json:"client_version"`
-	ClientName        string           `json:"client_name"`
-	ClientChannel     string           `json:"client_channel"`
-	InjectCompatTools bool             `json:"inject_compat_tools"`
+	Discovery     *DiscoveryConfig `json:"discovery,omitempty"`
+	ID            string           `json:"id"`
+	APIKey        string           `json:"api_key"`
+	Enabled       bool             `json:"enabled"`
+	Models        []string         `json:"models"`
+	BaseURL       string           `json:"base_url"`
+	Proxy         string           `json:"proxy"`
+	Profile       string           `json:"profile"`
+	AuthMode      string           `json:"auth_mode"`
+	ClientVersion string           `json:"client_version"`
+	ClientName    string           `json:"client_name"`
+	ClientChannel string           `json:"client_channel"`
 }
 
 type AccountsFile struct {
@@ -37,15 +37,15 @@ type AccountsFile struct {
 }
 
 type AccountDefaults struct {
-	Enabled           *bool            `json:"enabled,omitempty"`
-	Discovery         *DiscoveryConfig `json:"discovery,omitempty"`
-	BaseURL           string           `json:"base_url"`
-	Profile           string           `json:"profile"`
-	AuthMode          string           `json:"auth_mode"`
-	ClientVersion     string           `json:"client_version"`
-	ClientName        string           `json:"client_name"`
-	ClientChannel     string           `json:"client_channel"`
-	InjectCompatTools bool             `json:"inject_compat_tools"`
+	Enabled       *bool            `json:"enabled,omitempty"`
+	Discovery     *DiscoveryConfig `json:"discovery,omitempty"`
+	BaseURL       string           `json:"base_url"`
+	Proxy         string           `json:"proxy"`
+	Profile       string           `json:"profile"`
+	AuthMode      string           `json:"auth_mode"`
+	ClientVersion string           `json:"client_version"`
+	ClientName    string           `json:"client_name"`
+	ClientChannel string           `json:"client_channel"`
 }
 
 type DiscoveryConfig struct {

@@ -91,6 +91,43 @@ func TestAutoCatalogIdleBoundedAndStale(t *testing.T) {
 		t.Fatal("disabled automation not reloaded")
 	}
 }
+func TestAutoCatalogReloadsAccounts(t *testing.T) {
+	cfg, a := catalogFixture(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"data":[]}`) })
+	s := NewServer(cfg, []config.Account{a}, "token", nil)
+	defer s.Close()
+	if models := s.pool.Models(); len(models) != 1 || models[0] != "manual" {
+		t.Fatalf("initial pool %v", models)
+	}
+	second := a
+	second.ID = "two"
+	second.APIKey = "second-real-key" // the parser rejects a duplicated api_key
+	second.Models = []string{"second"}
+	document, _ := json.Marshal(config.AccountsFile{Accounts: []config.Account{a, second}})
+	if err := os.WriteFile(cfg.AccountsFile, document, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if pinned, _, err := s.pool.Acquire("manual", "conv-1"); err != nil || pinned.ID != a.ID {
+		t.Fatalf("pin before reload: %v %v", pinned.ID, err)
+	}
+	states := map[string]*autoCatalogState{}
+	s.autoCatalogTick(context.Background(), time.Now(), states)
+	models := s.pool.Models()
+	if len(models) != 2 || models[0] != "manual" || models[1] != "second" {
+		t.Fatalf("accounts not reloaded: %v", models)
+	}
+	if pinned, _, err := s.pool.Acquire("manual", "conv-1"); err != nil || pinned.ID != a.ID {
+		t.Fatalf("reload dropped a conversation pin: %v %v", pinned.ID, err)
+	}
+	// A broken configuration must keep the last good account set.
+	if err := os.WriteFile(cfg.AccountsFile, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.autoCatalogTick(context.Background(), time.Now(), states)
+	if models := s.pool.Models(); len(models) != 2 {
+		t.Fatalf("broken configuration dropped accounts: %v", models)
+	}
+}
+
 func TestAutoCatalogQuotaBackoff(t *testing.T) {
 	probes := 0
 	cfg, a := catalogFixture(t, func(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -40,7 +41,7 @@ func readStrictJSON(path string, dst any) error {
 }
 
 func LoadConfig(path string) (Config, error) {
-	c := Config{BaseModels: []string{"big-pickle", "beam-free", "mimo-v2.6-flash-free", "nemotron-3.5-super-vl-free", "nemotron-3.5-lightning-free", "longcat-2.5-preview-free", "deepseek-v4.1-flash-free", "minimax-m3.1-flash-free", "glm-5.3-flash-free"}, CatalogFile: "data/catalog.json", LogLevel: "info", ReloadSeconds: 5, AllowedHosts: []string{"opencode.ai"}}
+	c := Config{BaseModels: []string{"big-pickle", "beam-free", "flint-40b-free", "deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free", "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free"}, CatalogFile: "data/catalog.json", LogLevel: "info", ReloadSeconds: 5, AllowedHosts: []string{"opencode.ai"}}
 	if path != "" {
 		wire := struct {
 			*Config
@@ -98,9 +99,7 @@ func LoadConfig(path string) (Config, error) {
 	bounds := []struct {
 		name            string
 		value, min, max int64
-	}{
-		{"reload_seconds", int64(c.ReloadSeconds), 1, 3600},
-	}
+	}{{"reload_seconds", int64(c.ReloadSeconds), 1, 3600}}
 	for _, b := range bounds {
 		if b.value < b.min || b.value > b.max {
 			return Config{}, fmt.Errorf("%s is outside allowed bounds", b.name)
@@ -193,7 +192,7 @@ func loadAccountsDocument(doc AccountsFile, cfg Config) ([]Account, error) {
 		defaults = *doc.Defaults
 	}
 	if defaults.AuthMode != "" && defaults.AuthMode != "key" {
-		return nil, errors.New("defaults.auth_mode must be key; public requires an explicit account")
+		return nil, errors.New("defaults.auth_mode must be key")
 	}
 	if doc.Defaults != nil || len(doc.APIKeys) > 0 {
 		check := accountFromDefaults(defaults)
@@ -220,9 +219,9 @@ func accountFromDefaults(d AccountDefaults) Account {
 	if d.Enabled != nil {
 		enabled = *d.Enabled
 	}
-	a := Account{Enabled: enabled, BaseURL: d.BaseURL, Profile: d.Profile,
+	a := Account{Enabled: enabled, BaseURL: d.BaseURL, Proxy: d.Proxy, Profile: d.Profile,
 		AuthMode: d.AuthMode, ClientVersion: d.ClientVersion,
-		ClientName: d.ClientName, ClientChannel: d.ClientChannel, InjectCompatTools: d.InjectCompatTools}
+		ClientName: d.ClientName, ClientChannel: d.ClientChannel}
 	if d.Discovery != nil {
 		copy := *d.Discovery
 		a.Discovery = &copy
@@ -250,24 +249,21 @@ func normalizeAccounts(accounts []Account, models []string, cfg Config) ([]Accou
 		}
 		ids[a.ID] = true
 		if a.Profile == "" {
-			a.Profile = "opencode-v1"
+			a.Profile = "opencode-v2"
 		}
 		switch a.Profile {
-		case "raw", "opencode-v1", "opencode-v2", "zen-free-compat":
+		case "raw", "opencode-v2":
 		default:
 			return fail("invalid profile")
 		}
 		if a.AuthMode == "" {
 			a.AuthMode = "key"
 		}
-		if a.AuthMode != "key" && a.AuthMode != "public" {
+		if a.AuthMode != "key" {
 			return fail("invalid auth_mode")
 		}
-		if a.AuthMode == "public" && a.Profile != "zen-free-compat" {
-			return fail("public auth requires zen-free-compat profile")
-		}
-		if a.Enabled && a.AuthMode == "key" && PlaceholderKey(a.APIKey) {
-			return fail("enabled key account requires a non-placeholder api_key")
+		if a.Enabled && PlaceholderKey(a.APIKey) {
+			return fail("enabled account requires a non-placeholder api_key")
 		}
 		if strings.TrimSpace(a.APIKey) != a.APIKey || strings.ContainsAny(a.APIKey, "\r\n\x00") {
 			return fail("invalid api_key format")
@@ -282,10 +278,7 @@ func normalizeAccounts(accounts []Account, models []string, cfg Config) ([]Accou
 			return fail(err.Error())
 		}
 		if a.BaseURL == "" {
-			a.BaseURL = "https://opencode.ai/zen/v1"
-			if a.Profile == "opencode-v2" {
-				a.BaseURL = "https://opencode.ai/inference/openai/v1"
-			}
+			a.BaseURL = "https://opencode.ai/inference/openai/v1"
 		}
 		u, err := url.Parse(a.BaseURL)
 		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(a.BaseURL, "#") || u.Opaque != "" {
@@ -304,28 +297,62 @@ func normalizeAccounts(accounts []Account, models []string, cfg Config) ([]Accou
 			return fail("base_url host is not allowed")
 		}
 		a.BaseURL = strings.TrimRight(a.BaseURL, "/")
-		if a.ClientVersion == "" {
-			a.ClientVersion = "1.18.31"
-			if a.Profile == "opencode-v2" {
-				a.ClientVersion = "2.0.32"
+		if a.Proxy != "" {
+			proxy, err := normalizeProxy(a.Proxy)
+			if err != nil {
+				return fail(err.Error())
 			}
+			a.Proxy = proxy
+		}
+		if a.ClientVersion == "" {
+			a.ClientVersion = "2.1.4"
 		}
 		if a.ClientName == "" {
 			a.ClientName = "cli"
 		}
 		if a.ClientChannel == "" {
-			a.ClientChannel = "stable"
+			a.ClientChannel = "latest"
 		}
 		for _, v := range []string{a.ClientVersion, a.ClientName, a.ClientChannel} {
 			if strings.ContainsAny(v, "\r\n\x00") {
 				return fail("invalid client metadata")
 			}
 		}
-		if a.InjectCompatTools && a.Profile != "zen-free-compat" {
-			return fail("inject_compat_tools requires zen-free-compat profile")
-		}
 	}
 	return accounts, nil
+}
+
+// normalizeProxy validates the SOCKS5 endpoint that carries an account's egress. Credentials
+// are allowed (the proxy may need them), a port is required, and nothing else is: a typo here
+// would otherwise surface as an opaque transport failure only when a request arrives.
+func normalizeProxy(raw string) (string, error) {
+	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, " \t\r\n\x00") {
+		return "", errors.New("invalid proxy")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Opaque != "" || u.Fragment != "" || u.RawQuery != "" || u.ForceQuery {
+		return "", errors.New("invalid proxy")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "socks5" && scheme != "socks5h" {
+		return "", errors.New("proxy must use socks5:// or socks5h://")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", errors.New("invalid proxy path")
+	}
+	port := u.Port()
+	if port == "" {
+		return "", errors.New("proxy must include a port")
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "", errors.New("invalid proxy port")
+	}
+	if u.Hostname() == "" || strings.ContainsAny(u.Hostname(), "/@?#\\") {
+		return "", errors.New("invalid proxy host")
+	}
+	u.Scheme = scheme
+	u.Path = ""
+	return u.String(), nil
 }
 
 func normalizeDiscovery(d *DiscoveryConfig) error {

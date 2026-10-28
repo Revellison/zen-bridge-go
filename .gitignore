@@ -6,3 +6,4 @@
 *.log
 coverage.out
 .env
+opencode

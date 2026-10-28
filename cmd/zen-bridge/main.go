@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -59,10 +60,16 @@ func run() error {
 			ID         string `json:"id"`
 			Enabled    bool   `json:"enabled"`
 			ModelCount int    `json:"model_count"`
+			// Proxy is the egress host only: credentials in the URL stay out of the output.
+			Proxy string `json:"proxy,omitempty"`
 		}
 		out := make([]accountInfo, 0, len(accounts))
 		for i, a := range accounts {
-			out = append(out, accountInfo{Index: i + 1, ID: a.ID, Enabled: a.Enabled, ModelCount: len(a.Models)})
+			info := accountInfo{Index: i + 1, ID: a.ID, Enabled: a.Enabled, ModelCount: len(a.Models)}
+			if u, err := url.Parse(a.Proxy); err == nil && u.Host != "" {
+				info.Proxy = u.Host
+			}
+			out = append(out, info)
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -162,27 +169,11 @@ func run() error {
 		defer app.Close()
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		go app.WatchAccounts(ctx)
 		go app.RunAutoCatalog(ctx)
-		hup := make(chan os.Signal, 1)
-		signal.Notify(hup, syscall.SIGHUP)
-		defer signal.Stop(hup)
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-hup:
-					if e := app.ReloadAccounts(); e != nil {
-						logger.Warn("accounts reload rejected; previous configuration retained")
-					}
-				}
-			}
-		}()
 		srv := &http.Server{Addr: listen, Handler: app.Handler()}
 		done := make(chan error, 1)
 		go func() { done <- srv.ListenAndServe() }()
-		logger.Info("bridge started; local access key comes from config.json client_token", "listen", listen, "version", version)
+		logger.Info("bridge started", "listen", listen, "version", version, "log_level", cfg.LogLevel)
 		select {
 		case e := <-done:
 			if e != nil && e != http.ErrServerClosed {

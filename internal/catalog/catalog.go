@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,7 +49,7 @@ type catalogFile struct {
 }
 
 func Tag(a config.Account) string {
-	data, _ := json.Marshal([]any{a.APIKey, a.BaseURL, a.Profile, a.AuthMode, a.ClientVersion, a.ClientName, a.ClientChannel, a.InjectCompatTools})
+	data, _ := json.Marshal([]any{a.APIKey, a.BaseURL, a.Profile, a.AuthMode, a.ClientVersion, a.ClientName, a.ClientChannel})
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
@@ -152,28 +151,27 @@ func catalogFetch(ctx context.Context, client *http.Client, a config.Account) (R
 	r := Report{AccountID: a.ID, Models: []ModelCheck{}}
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	req, e := upstream.BuildUpstreamOperation(ctx, a, map[string]json.RawMessage{}, upstream.NewSessionID(), "chat")
+	// Discovery asks the gateway for its model list. It sends none of the conversation
+	// headers: the real client reads its catalog from models.dev and never issues this call,
+	// so the request stays as plain as possible.
+	req, e := upstream.BuildCatalogRequest(ctx, a, "gzip, deflate")
 	if e != nil {
 		return r, e
 	}
-	req.URL, e = url.Parse(a.BaseURL + "/models")
-	if e != nil {
-		return r, errors.New("invalid catalog URL")
-	}
-	req.Method = http.MethodGet
-	req.Body = nil
-	req.GetBody = nil
-	req.ContentLength = 0
 	resp, e := client.Do(req)
 	if e != nil {
 		return r, errors.New("catalog discovery request failed")
 	}
 	defer resp.Body.Close()
+	body := upstream.DecodedBody(resp)
+	if body != resp.Body {
+		defer body.Close()
+	}
 	if resp.StatusCode != 200 {
 		r.RetryAfterSeconds = int(upstream.ParseRetryAfter(resp.Header.Get("Retry-After")).Seconds())
 		return r, fmt.Errorf("catalog discovery returned HTTP %d", resp.StatusCode)
 	}
-	b, e := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
+	b, e := io.ReadAll(io.LimitReader(body, (2<<20)+1))
 	if e != nil || len(b) > 2<<20 {
 		return r, errors.New("catalog discovery body exceeds limit or is unreadable")
 	}
@@ -246,7 +244,10 @@ func Run(ctx context.Context, cfg config.Config, id string, check bool, opt Opti
 	if e != nil {
 		return Report{}, e
 	}
-	client := upstream.NewUpstreamClient()
+	client, err := upstream.NewClientFor(a.Proxy)
+	if err != nil {
+		return Report{}, err
+	}
 	defer client.CloseIdleConnections()
 	entry, cached := cache.Accounts[id]
 	cached = cached && entry.CredentialTag == Tag(a)
@@ -285,6 +286,9 @@ func Run(ctx context.Context, cfg config.Config, id string, check bool, opt Opti
 	probes := 0
 	stopped := false
 	stopReason := "rate_limit_stop"
+	// One session for the whole pass: probes would otherwise look like a burst of unrelated
+	// conversations from the same key.
+	probeSession := upstream.NewSessionID()
 	for i := range r.Models {
 		m := &r.Models[i]
 		if !check {
@@ -329,7 +333,7 @@ func Run(ctx context.Context, cfg config.Config, id string, check bool, opt Opti
 			}
 		}
 		probes++
-		probeCatalog(ctx, client, a, m)
+		probeCatalog(ctx, client, a, m, probeSession)
 		if m.RetryAfterSeconds > r.RetryAfterSeconds {
 			r.RetryAfterSeconds = m.RetryAfterSeconds
 		}
@@ -348,7 +352,7 @@ func Run(ctx context.Context, cfg config.Config, id string, check bool, opt Opti
 	}
 	return r, nil
 }
-func probeCatalog(ctx context.Context, client *http.Client, a config.Account, m *ModelCheck) {
+func probeCatalog(ctx context.Context, client *http.Client, a config.Account, m *ModelCheck, sessionID string) {
 	timeout := 45 * time.Second
 	if a.Discovery != nil {
 		timeout = time.Duration(a.Discovery.ProbeTimeoutSeconds) * time.Second
@@ -357,16 +361,21 @@ func probeCatalog(ctx context.Context, client *http.Client, a config.Account, m 
 	defer cancel()
 	m.RetryAfterSeconds = 0
 	m.CheckedAt = time.Now().UTC()
-	model, _ := json.Marshal(m.ID)
-	body := map[string]json.RawMessage{"model": model, "stream": json.RawMessage(`false`)}
+	payload := map[string]any{"model": m.ID, "stream": false}
 	if m.Protocol == "responses" {
-		body["input"] = json.RawMessage(`"Reply exactly OK"`)
-		body["max_output_tokens"] = json.RawMessage(`128`)
+		payload["input"] = "Reply exactly OK"
+		payload["max_output_tokens"] = 128
 	} else {
-		body["messages"] = json.RawMessage(`[{"role":"user","content":"Reply exactly OK"}]`)
-		body["max_tokens"] = json.RawMessage(`128`)
+		payload["messages"] = []map[string]string{{"role": "user", "content": "Reply exactly OK"}}
+		payload["max_tokens"] = 128
 	}
-	req, e := upstream.BuildUpstreamOperation(ctx, a, body, upstream.NewSessionID(), m.Protocol)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		m.Status = "error"
+		m.ErrorType = "request_build"
+		return
+	}
+	req, e := upstream.BuildUpstreamOperation(ctx, a, body, upstream.Session{ID: sessionID, ProjectID: "global"}, m.Protocol, "gzip, deflate")
 	if e != nil {
 		m.Status = "error"
 		m.ErrorType = "request_build"

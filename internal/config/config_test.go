@@ -21,13 +21,15 @@ func TestConfigDefaultsAndStrictValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.AccountsFile != "accounts.json" || c.CatalogFile != "data/catalog.json" || c.LogLevel != "info" || c.ReloadSeconds != 5 || len(c.BaseModels) != 9 || len(c.AllowedHosts) != 1 || c.AllowedHosts[0] != "opencode.ai" {
+	if c.AccountsFile != "accounts.json" || c.CatalogFile != "data/catalog.json" || c.LogLevel != "info" || c.ReloadSeconds != 5 || len(c.BaseModels) != 8 || len(c.AllowedHosts) != 1 || c.AllowedHosts[0] != "opencode.ai" {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 	for _, bad := range []string{
 		`{"unknown":true}`,
 		`{"listen":"not-an-address"}`,
 		`{"log_level":"verbose"}`,
+		`{"reload_seconds":0}`,
+		`{"reload_seconds":3601}`,
 		`{"allowed_hosts":[]}`,
 		`{"base_models":["same","same"]}`,
 		`{"client_token":"short"}`,
@@ -36,6 +38,10 @@ func TestConfigDefaultsAndStrictValidation(t *testing.T) {
 		if _, err := LoadConfig(writeConfig(t, bad)); err == nil {
 			t.Fatalf("accepted %s", bad)
 		}
+	}
+	reloaded, err := LoadConfig(writeConfig(t, `{"reload_seconds":30}`))
+	if err != nil || reloaded.ReloadSeconds != 30 {
+		t.Fatalf("reload_seconds %d %v", reloaded.ReloadSeconds, err)
 	}
 }
 
@@ -71,7 +77,7 @@ func TestClientToken(t *testing.T) {
 func TestSimpleKeysInheritanceAndIsolation(t *testing.T) {
 	path := writeConfig(t, `{
 		"models":["a-free","b-free"],
-		"defaults":{"base_url":"https://opencode.ai/zen/v1","profile":"zen-free-compat"},
+		"defaults":{"base_url":"https://opencode.ai/inference/openai/v1","profile":"opencode-v2"},
 		"api_keys":["real-key-aaaa","real-key-bbbb"]
 	}`)
 	cfg, err := LoadConfig(path)
@@ -86,7 +92,7 @@ func TestSimpleKeysInheritanceAndIsolation(t *testing.T) {
 		t.Fatalf("generated accounts %+v", accounts)
 	}
 	for _, a := range accounts {
-		if len(a.Models) != 2 || a.Models[0] != "a-free" || a.Profile != "zen-free-compat" {
+		if len(a.Models) != 2 || a.Models[0] != "a-free" || a.Profile != "opencode-v2" {
 			t.Fatalf("inheritance %+v", a)
 		}
 	}
@@ -135,8 +141,11 @@ func TestSharedModelsAndExplicitAccounts(t *testing.T) {
 	if len(accounts) != 3 || len(accounts[0].Models) != 1 || accounts[0].Models[0] != "shared" || accounts[1].Models[0] != "own" || len(accounts[2].Models) != 0 {
 		t.Fatalf("model inheritance %+v", accounts)
 	}
-	if accounts[0].AuthMode != "key" || accounts[0].Profile != "opencode-v1" || accounts[0].BaseURL != "https://opencode.ai/zen/v1" {
+	if accounts[0].AuthMode != "key" || accounts[0].Profile != "opencode-v2" || accounts[0].BaseURL != "https://opencode.ai/inference/openai/v1" {
 		t.Fatalf("defaults not normalized %+v", accounts[0])
+	}
+	if accounts[0].ClientVersion != "2.1.4" || accounts[0].ClientName != "cli" || accounts[0].ClientChannel != "latest" {
+		t.Fatalf("client metadata %+v", accounts[0])
 	}
 	for _, bad := range []string{
 		`{"accounts":[{"id":"one","api_key":"real-key-one"},{"id":"one","api_key":"real-key-two"}]}`,
@@ -165,6 +174,31 @@ func TestSharedModelsAndExplicitAccounts(t *testing.T) {
 	accounts, err = LoadConfiguredAccounts(c)
 	if err != nil || len(accounts) != 1 {
 		t.Fatalf("http upstream rejected: %v", err)
+	}
+}
+
+func TestAccountProxyValidation(t *testing.T) {
+	load := func(proxy string) ([]Account, error) {
+		path := writeConfig(t, `{"defaults":{"proxy":"`+proxy+`"},"api_keys":["real-key-proxy"]}`)
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			return nil, err
+		}
+		return LoadConfiguredAccounts(cfg)
+	}
+	for _, good := range []string{"socks5://127.0.0.1:1080", "socks5h://user:pass@proxy.example:1080", "SOCKS5://10.0.0.1:9050/"} {
+		accounts, err := load(good)
+		if err != nil || len(accounts) != 1 {
+			t.Fatalf("proxy %q rejected: %v", good, err)
+		}
+		if accounts[0].Proxy == "" || !strings.HasPrefix(accounts[0].Proxy, "socks5") {
+			t.Fatalf("proxy not normalized: %q", accounts[0].Proxy)
+		}
+	}
+	for _, bad := range []string{"http://127.0.0.1:1080", "socks5://127.0.0.1", "socks5://", "socks5://127.0.0.1:0", "socks5://127.0.0.1:70000", "socks5://host:1080/path", "socks5://host:1080?x=1"} {
+		if _, err := load(bad); err == nil {
+			t.Fatalf("accepted proxy %q", bad)
+		}
 	}
 }
 

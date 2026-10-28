@@ -17,8 +17,16 @@ type autoCatalogState struct {
 	blockedUntil time.Time
 }
 
+// RunAutoCatalog reloads the account list and runs the catalog schedule. The reload period is
+// reload_seconds: it is the only configuration the bridge re-reads from disk without a
+// restart, and it applies to defaults, api_keys, accounts and discovery settings.
 func (s *Server) RunAutoCatalog(ctx context.Context) {
-	timer := time.NewTimer(10 * time.Second)
+	interval := s.reloadInterval()
+	delay := 10 * time.Second
+	if interval < delay {
+		delay = interval
+	}
+	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -27,7 +35,7 @@ func (s *Server) RunAutoCatalog(ctx context.Context) {
 	}
 	states := map[string]*autoCatalogState{}
 	s.autoCatalogTick(ctx, time.Now(), states)
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -39,6 +47,36 @@ func (s *Server) RunAutoCatalog(ctx context.Context) {
 	}
 }
 
+func (s *Server) reloadInterval() time.Duration {
+	seconds := s.cfg.ReloadSeconds
+	if seconds < 1 {
+		seconds = 5
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func accountRevision(accounts []config.Account) [32]byte {
+	data, _ := json.Marshal(accounts)
+	return sha256.Sum256(data)
+}
+
+// reloadAccounts publishes a changed account set to the pool, so edits to config.json take
+// effect without a restart. The pool keeps existing conversation pins across a reload.
+func (s *Server) reloadAccounts(accounts []config.Account) {
+	effective := catalog.Apply(s.cfg, accounts)
+	revision := accountRevision(effective)
+	s.reloadMu.Lock()
+	changed := revision != s.accountsRev
+	if changed {
+		s.accountsRev = revision
+	}
+	s.reloadMu.Unlock()
+	if changed {
+		s.pool.Reload(effective)
+		s.logger.Info("accounts reloaded", "count", len(effective))
+	}
+}
+
 func (s *Server) autoCatalogTick(ctx context.Context, now time.Time, states map[string]*autoCatalogState) {
 	if ctx.Err() != nil {
 		return
@@ -47,6 +85,7 @@ func (s *Server) autoCatalogTick(ctx context.Context, now time.Time, states map[
 	if err != nil {
 		return
 	}
+	s.reloadAccounts(accounts)
 	active := map[string]bool{}
 	for _, a := range accounts {
 		if a.Enabled && a.AuthMode == "key" && a.Discovery != nil && a.Discovery.Enabled {
@@ -128,7 +167,13 @@ func (s *Server) autoCatalogTick(ctx context.Context, now time.Time, states map[
 			}
 		}
 		release()
-		s.logger.Info("automatic catalog pass", "account", a.ID, "failed", e != nil, "counts", report.Counts, "truncated", report.Truncated)
+		// The pass may have rewritten the catalog cache, which changes the effective model set.
+		s.reloadAccounts(accounts)
+		if e != nil {
+			s.logger.Warn("automatic catalog pass failed", "account", a.ID, "error", e)
+			return
+		}
+		s.logger.Info("automatic catalog pass", "account", a.ID, "counts", report.Counts, "truncated", report.Truncated)
 		return
 	}
 }

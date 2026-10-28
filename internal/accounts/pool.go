@@ -11,6 +11,11 @@ import (
 
 var ErrNoAvailable = errors.New("no enabled upstream account available")
 
+// affinityLimit bounds the conversation pins. A conversation keeps its account for as long
+// as it is remembered: an account switch mid-conversation exposes key rotation and throws
+// away the provider's prompt cache for that conversation.
+const affinityLimit = 4096
+
 type affinityEntry struct {
 	id      string
 	touched time.Time
@@ -73,11 +78,6 @@ func (p *Pool) Acquire(model, affinity string) (config.Account, func(), error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
-	for key, e := range p.affinity {
-		if now.Sub(e.touched) >= 15*time.Minute {
-			delete(p.affinity, key)
-		}
-	}
 	if affinity != "" {
 		if e, ok := p.affinity[affinity]; ok {
 			if a, exists := p.accounts[e.id]; exists && a.Enabled {
@@ -113,7 +113,7 @@ func (p *Pool) Acquire(model, affinity string) (config.Account, func(), error) {
 	}
 	a := p.accounts[chosen]
 	if affinity != "" {
-		if _, exists := p.affinity[affinity]; !exists && len(p.affinity) >= 128 {
+		if _, exists := p.affinity[affinity]; !exists && len(p.affinity) >= affinityLimit {
 			var oldestKey string
 			var oldest time.Time
 			for k, e := range p.affinity {

@@ -1,6 +1,6 @@
 # Zen Bridge
 
-Небольшой Go-шлюз к OpenCode Zen: прозрачная труба с OpenAI-совместимым API, несколькими upstream-ключами и Responses API. Шлюз не ограничивает размеры, время и параллелизм, не проверяет схемы запросов и не пересобирает стрим. Только стандартная библиотека Go; в проде работает один статический контейнер.
+Небольшой Go-шлюз к OpenCode: прозрачная труба с OpenAI-совместимым API, несколькими upstream-ключами и Responses API. Шлюз не ограничивает размеры, время и параллелизм, не проверяет схемы запросов и не пересобирает стрим. Только стандартная библиотека Go; в проде работает один статический контейнер.
 
 ## Как работает
 
@@ -8,7 +8,7 @@
 клиент (IDE) → /v1/chat/completions или /v1/responses
              → локальный Bearer client_token
              → пул аккаунтов (round-robin, без лимитов и cooldown)
-             → https://opencode.ai/zen/v1
+             → https://opencode.ai/inference/openai/v1
 ```
 
 Шлюз не хранит историю, не выполняет инструменты и не преобразует Chat ↔ Responses: клиент сам выбирает endpoint и передаёт полный контекст. `config.json` монтируется только для чтения, единственная запись — кэш каталога `/data/catalog.json`.
@@ -47,7 +47,7 @@ docker compose up -d
 
 ### Порты
 
-Адрес процесса задаётся только переменной окружения `ZEN_BRIDGE_LISTEN`, поля `listen` в `config.json` больше нет. По умолчанию используется `127.0.0.1:18788`, поэтому локальный запуск доступен только с этой машины:
+Адрес процесса задаётся только переменной окружения `ZEN_BRIDGE_LISTEN`, поля `listen` в `config.json` нет. По умолчанию используется `127.0.0.1:18788`, поэтому локальный запуск доступен только с этой машины:
 
 ```sh
 ZEN_BRIDGE_LISTEN=127.0.0.1:19000 ./zen-bridge serve --config config.json
@@ -62,12 +62,12 @@ BRIDGE_PORT=19000
 
 По умолчанию публикуется `127.0.0.1:18788`. Значение `BRIDGE_PORT=0` попросит Docker выбрать свободный порт; узнать его можно командой `docker compose port bridge 18788`. Внутренний порт контейнера фиксирован в compose и healthcheck; для его смены нужно править compose, а не `config.json`. Старые конфиги с полем `listen` отклоняются strict-парсером — удалите это поле.
 
-`/readyz` возвращает 503, пока нет включённого аккаунта. Локальный ключ доступа и ключ Zen — разные секреты:
+`/readyz` возвращает 503, пока нет включённого аккаунта. Локальный ключ доступа и upstream-ключ — разные секреты:
 
 | Секрет | Поле | Назначение |
 |---|---|---|
 | Ключ клиента | `client_token` | Bearer-токен, которым IDE обращается к шлюзу. 8–256 символов без пробелов, обязателен. |
-| Ключ Zen | `api_keys` | Upstream-ключ. Каждый получает стабильный ID `key_<hash>`. |
+| Ключ OpenCode | `api_keys` | Upstream-ключ. Каждый получает стабильный ID `key_<hash>`. |
 
 `config.json` содержит оба секрета в открытом виде: не коммитьте его и не публикуйте порт наружу без туннеля или VPN.
 
@@ -79,8 +79,8 @@ BRIDGE_PORT=19000
 |---|---|---|
 | `log_level` | `info` | `debug`, `info`, `warn` или `error`. Применяется после рестарта. |
 | `client_token` | — | Локальный Bearer-токен клиентов. Обязателен, меняется после рестарта. |
-| `api_keys` | `[]` | Upstream-ключи Zen. Пустой массив допустим: сервер запускается без inference-аккаунтов. |
-| `accounts` | — | Явные аккаунты: свои ID, `public`, per-account настройки. Можно использовать вместе с `api_keys`. |
+| `api_keys` | `[]` | Upstream-ключи OpenCode. Пустой массив допустим: сервер запускается без inference-аккаунтов. |
+| `accounts` | — | Явные аккаунты: свои ID, per-account настройки. Можно использовать вместе с `api_keys`. |
 | `base_models` | список free-моделей | Что показывать в `/v1/models`. Это только объявления для IDE, а не whitelist: запросы к другим моделям проходят. |
 | `reload_seconds` | `5` | Период проверки изменений аккаунтов и каталога. |
 | `catalog_file` | `data/catalog.json` | Путь к кэшу проверенных моделей. В контейнере `data/...` разрешается в `/data/...`. |
@@ -97,30 +97,28 @@ BRIDGE_PORT=19000
 | Поле | По умолчанию | Назначение |
 |---|---|---|
 | `enabled` | `true` | Создавать ли аккаунты из `api_keys` включёнными. |
-| `profile` | `opencode-v1` | Режим upstream-заголовков: `raw`, `opencode-v1`, `opencode-v2`, `zen-free-compat`. |
-| `base_url` | зависит от профиля | Upstream endpoint. Для v1/free — `https://opencode.ai/zen/v1`, для v2 — `https://opencode.ai/inference/openai/v1`. |
-| `auth_mode` | `key` | `key` — Bearer с ключом Zen. `public` здесь запрещён; анонимный режим задаётся только явным аккаунтом с профилем `zen-free-compat`. |
-| `client_version` | `1.18.31` | Версия клиента для upstream-заголовков. Для `opencode-v2` по умолчанию `2.0.32`. |
-| `client_name` | `cli` | Имя клиента для `x-opencode-client` и `User-Agent` профиля v2. |
-| `client_channel` | `stable` | Канал релиза в `User-Agent` профиля v2. В других профилях не используется. |
-| `inject_compat_tools` | `false` | Только для `zen-free-compat`: добавлять в `tools` схемы `bash` и `read`, если клиент их не передал. |
+| `profile` | `opencode-v2` | Режим upstream-заголовков: `raw` или `opencode-v2`. |
+| `base_url` | `https://opencode.ai/inference/openai/v1` | Upstream endpoint. |
+| `auth_mode` | `key` | Единственный допустимый режим: Bearer с ключом OpenCode. |
+| `client_version` | `2.1.4` | Версия клиента для `User-Agent`. |
+| `client_name` | `cli` | Имя клиента для `User-Agent` и `x-opencode-client`. |
+| `client_channel` | `latest` | Канал релиза в `User-Agent`: `latest`, `dev`, `beta`, `local`, `next` или имя ветки. |
 | `discovery` | выключено | Фоновое обновление каталога и проверки для этого аккаунта. |
 
-Поля `client_*` — это метаданные для upstream. Они не влияют на тело запроса, выбор модели или аккаунта. Исключение — `inject_compat_tools`: он действительно добавляет описания инструментов в запрос. Реализацию `bash`/`read` всё равно выполняет клиент.
+Поля `client_version`, `client_name`, `client_channel` задают метаданные для upstream. Они формируют `User-Agent` в формате `opencode/{channel}/{version}/{name}` и отправляются в заголовке `x-opencode-client`.
 
 ### `accounts[]`
 
 | Поле | Назначение |
 |---|---|
 | `id` | Уникальный ID: буквы, цифры, `_` и `-`; начинается с буквы или цифры. |
-| `api_key` | Ключ Zen для `auth_mode: "key"`. Для `public` не нужен. |
+| `api_key` | Ключ OpenCode. |
 | `enabled` | Включает аккаунт в пул. Для явной записи нужно указать `true`. |
 | `models` | Необязательный список моделей для предпочтения этого аккаунта. Не ограничивает запросы: неизвестная модель уйдёт в любой доступный аккаунт. |
 | `profile` | Переопределяет `defaults.profile`. |
 | `base_url` | Переопределяет upstream endpoint; хост должен входить в `allowed_hosts`. |
-| `auth_mode` | `key` или `public`; `public` разрешён только с `zen-free-compat`. |
-| `client_version`, `client_name`, `client_channel` | Переопределяют соответствующие метаданные. |
-| `inject_compat_tools` | Переопределяет инъекцию `bash`/`read`; допустимо только для `zen-free-compat`. |
+| `auth_mode` | Только `key`. |
+| `client_version`, `client_name`, `client_channel` | Переопределяют метаданные клиента. |
 | `discovery` | Индивидуальные настройки фонового каталога. |
 
 ### `discovery`
@@ -149,24 +147,35 @@ docker compose exec -T bridge /zen-bridge models check --config /config/config.j
 
 ### Что перечитывается без рестарта
 
-`defaults`, `api_keys` и `accounts` перечитываются автоматически каждые `reload_seconds`. `log_level`, `base_models`, `catalog_file`, `allowed_hosts`, `allow_http_upstream`, `client_token` и `ZEN_BRIDGE_LISTEN` применяются только после рестарта. Битый файл целиком отклоняется, последняя рабочая конфигурация сохраняется.
+`defaults`, `api_keys`, `accounts` и настройки `discovery` перечитываются автоматически каждые `reload_seconds`: пул аккаунтов обновляется на месте, открытые диалоги сохраняют свой аккаунт. `log_level`, `base_models`, `catalog_file`, `allowed_hosts`, `allow_http_upstream`, `client_token` и `ZEN_BRIDGE_LISTEN` применяются только после рестарта. Битый файл целиком отклоняется, последняя рабочая конфигурация сохраняется.
 
 ## Профили
 
-Профиль определяет только набор upstream-заголовков и базовый URL. Тело запроса, `stream` и ответ не меняются.
+Профиль определяет набор upstream-заголовков. Тело запроса, `stream` и ответ не меняются.
 
 | Профиль | Base URL по умолчанию | Заголовки |
 |---|---|---|
-| `raw` | `https://opencode.ai/zen/v1` | `User-Agent: zenbridge`; OpenCode-метаданные не отправляются. |
-| `opencode-v1` | `https://opencode.ai/zen/v1` | `User-Agent: opencode/<client_version>`, `x-opencode-session`, `x-opencode-request`, `x-opencode-client`. |
-| `opencode-v2` | `https://opencode.ai/inference/openai/v1` | `User-Agent: opencode/<client_channel>/<client_version>/<client_name>`, `x-opencode-client`, `x-opencode-session-id`, `x-opencode-session`, `X-Session-Id`, `x-session-affinity`. |
-| `zen-free-compat` | `https://opencode.ai/zen/v1` | `User-Agent: opencode/<client_version> ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14`, `x-opencode-session`, `x-opencode-session-id`; допускает `inject_compat_tools`. |
+| `opencode-v2` | `https://opencode.ai/inference/openai/v1` | `User-Agent: opencode/{channel}/{version}/{name}`, `x-opencode-session-id`, `x-opencode-session`, `x-session-affinity`, `X-Session-Id`, `x-opencode-project`, `x-opencode-client`, `x-opencode-parent-session-id` и `x-parent-session-id` для дочерних сессий. |
+| `raw` | `https://opencode.ai/inference/openai/v1` | `User-Agent: zenbridge`. Без OpenCode-метаданных. Полезен для отладки или другого OpenAI-совместимого upstream. |
 
-`opencode-v1` — безопасный выбор по умолчанию. `opencode-v2` нужен для нового endpoint и v2-метаданных. `zen-free-compat` — для бесплатных моделей и режима `public`. `raw` полезен для отладки или другого OpenAI-совместимого upstream.
+`opencode-v2` — профиль по умолчанию. Он воспроизводит заголовки, которые отправляет официальный клиент opencode при inference-запросах:
 
-### `X-Bridge-Session`
+- `x-opencode-session-id` — ID диалога. Один диалог всегда даёт один и тот же `ses_...` (30 символов: `ses_` + 12 hex + 14 base62).
+- `x-opencode-session` / `x-session-affinity` / `X-Session-Id` — affinity: ID родительской сессии, если она есть, иначе ID самой сессии. Именно так считает сам клиент.
+- `x-opencode-parent-session-id` / `x-parent-session-id` — только для дочерних (subagent) сессий.
+- `x-opencode-project` — проект: `global`, если проекта нет; 40 hex-символов передаются как есть; любое другое значение хэшируется в SHA-1 от `git-remote:<значение>`.
+- `x-opencode-client` — значение `client_name` из конфига.
+- `User-Agent` — формат `opencode/{client_channel}/{client_version}/{client_name}`.
 
-Необязательный заголовок клиента привязывает последующие запросы к тому же аккаунту на 15 минут после последнего использования. В upstream этот заголовок не передаётся: вместо него шлюз генерирует собственный session ID для профилей OpenCode. Если привязка истекла или аккаунт выключен, выбирается новый аккаунт.
+Тело запроса уходит upstream байт в байт: шлюз не перекодирует JSON, не сортирует ключи и не переэкранирует `<`, `>`, `&`. `Accept` и `TypeSafe-Danger-Zone-Images` не добавляются — настоящий клиент их при обычном inference не отправляет. Заголовок `Accept-Encoding` повторяет то, что прислал клиент; если клиент его не прислал, шлюз запрашивает `gzip` сам и распаковывает ответ.
+
+### `X-Bridge-Session` и определение диалога
+
+Необязательный заголовок клиента задаёт ID диалога. Также принимаются `X-Conversation-Id`, `Conversation-Id`, `Session-Id` и `X-Session-Id`. Если ни одного нет, диалог определяется по первому сообщению пользователя: каждый следующий запрос того же диалога повторяет его, поэтому session ID и аккаунт остаются прежними даже при смене модели. Диалог помнится, пока он используется (LRU до 4096 записей), без таймаута: смена аккаунта посреди диалога ломает prompt cache.
+
+`X-Bridge-Parent` (или `X-Parent-Session`) помечает запрос как дочерний: он получает свой `x-opencode-session-id`, а affinity и parent-заголовки указывают на родителя. `X-Bridge-Project` задаёт проект: 40 hex-символов передаются как есть, любое другое значение хэшируется в SHA-1 проекта.
+
+В upstream локальные заголовки не передаются.
 
 ## API
 
@@ -180,6 +189,18 @@ docker compose exec -T bridge /zen-bridge models check --config /config/config.j
 `stream: true` запрашивает SSE у upstream и возвращает его клиенту без разбора и агрегации; `stream: false` возвращает JSON как есть. Инструменты выполняет только клиент.
 
 Шлюз сам возвращает ошибки только для своих проверок: неверный `client_token` (401), отсутствие аккаунтов (503), недоступный upstream (502), нечитаемый JSON для выбора модели (400). Всё остальное — статус, заголовки и тело upstream — проходит клиенту без изменений.
+
+## Ограничения совместимости
+
+Шлюз воспроизводит транспортный слой клиента: формат ID, набор заголовков, тело байт в байт, SSE. Он не воспроизводит содержимое, которое формирует сам opencode: системный промпт, список инструментов, служебные генерации (title, summary, subagent) и обращения к Console API (`/console/api/v2/config`, `/api/policies/current-budgets`, `/zen/go/v1/usage`). Это ограничение содержимого запроса, а не транспорта.
+
+Собственные запросы шлюза отличаются от клиентских намеренно: каталог запрашивается обычным `GET /models` (только `Authorization`, `Accept` и `User-Agent`, без заголовков диалога), а inference-пробы идут одной сессией на проход.
+
+### Лимиты бесплатных моделей
+
+Бесплатные модели OpenCode Zen ограничены на стороне шлюза: дневная квота выдаётся на сеть и аккаунт, а не на ключ, и сбрасывается в 00:00 UTC. Шлюз на это не влияет — отказ приходит обычным ответом (`429` с телом `FreeUsageLimitError` и заголовком `Retry-After`, `402` при пустом балансе, `403` без подписки Go) и уходит клиенту без изменений. Причина видна в логе строкой `upstream rejected request`: там есть тело отказа и `Retry-After`.
+
+Проверить, что дело именно в квоте, а не в заголовках моста, можно тем же запросом без авторизации: если он возвращает тот же `FreeUsageLimitError`, ограничение относится к сети, из которой идут запросы.
 
 ## Сборка и тесты
 

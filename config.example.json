@@ -10,13 +10,12 @@
   "base_models": [
     "big-pickle",
     "beam-free",
-    "mimo-v2.6-flash-free",
-    "nemotron-3.5-super-vl-free",
-    "nemotron-3.5-lightning-free",
-    "longcat-2.5-preview-free",
+    "flint-40b-free",
     "deepseek-v4.1-flash-free",
-    "minimax-m3.1-flash-free",
-    "glm-5.3-flash-free"
+    "glm-5.3-flash-free",
+    "mimo-v2.6-flash-free",
+    "nemotron-3.5-lightning-free",
+    "nemotron-3.5-super-vl-free"
   ],
   "defaults": {
     "discovery": {
@@ -30,13 +29,13 @@
       "recheck_after_seconds": 86400,
       "failure_backoff_seconds": 900
     },
-    "profile": "zen-free-compat",
+    "profile": "opencode-v2",
     "auth_mode": "key",
-    "base_url": "https://opencode.ai/zen/v1",
-    "client_version": "1.18.31",
+    "base_url": "https://opencode.ai/inference/openai/v1",
+    "proxy": "",
+    "client_version": "2.1.4",
     "client_name": "cli",
-    "client_channel": "stable",
-    "inject_compat_tools": false
+    "client_channel": "latest"
   },
   "api_keys": []
 }
